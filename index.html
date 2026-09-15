@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="no">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Spanish Quiz Generator</title>
+<title>Spansk quizgenerator</title>
 <style>
   :root {
     --bg: #0d1117;
@@ -44,6 +44,14 @@
   h1 .flag2 { color: var(--accent-2); }
   .sub { color: var(--muted); font-size: .82rem; margin-top: 2px; }
   header .actions { display: flex; gap: 10px; align-items: center; }
+  .key-status { font-size: .78rem; display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  .key-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .key-status.ok { color: var(--good); }
+  .key-status.ok .dot { background: var(--good); }
+  .key-status.bad { color: var(--bad); }
+  .key-status.bad .dot { background: var(--bad); }
+  .key-status.checking .dot { background: var(--accent-2); animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 
   main { padding: 24px; max-width: 860px; margin: 0 auto; }
 
@@ -161,12 +169,12 @@
 
 <div id="gateOverlay" class="gate-overlay hidden">
   <div class="gate">
-    <h2>🇪🇸 Enter your OpenAI API key</h2>
-    <p>This app calls OpenAI directly from your browser to generate quizzes, so it needs your own API key. The key is stored only in this browser's local storage and is sent only to <code>api.openai.com</code> — never to any other server.</p>
-    <p>Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a>. Anyone with access to this browser will be able to see/use the stored key.</p>
+    <h2>🇪🇸 Skriv inn din OpenAI API-nøkkel</h2>
+    <p>Denne appen kaller OpenAI direkte fra nettleseren din for å lage quizer, så den trenger din egen API-nøkkel. Nøkkelen lagres kun lokalt i denne nettleseren og sendes kun til <code>api.openai.com</code> — aldri til noen annen server.</p>
+    <p>Hent en nøkkel på <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a>. Alle som har tilgang til denne nettleseren vil kunne se/bruke den lagrede nøkkelen.</p>
     <div class="row">
       <input type="password" id="gateKeyInput" placeholder="sk-..." autocomplete="off" />
-      <button id="gateSaveBtn">Save</button>
+      <button id="gateSaveBtn">Lagre</button>
     </div>
     <div class="err" id="gateErr"></div>
   </div>
@@ -174,45 +182,46 @@
 
 <header>
   <div>
-    <h1><span class="flag">Spanish</span> <span class="flag2">Quiz</span> Generator</h1>
-    <div class="sub">Paste text or snap a photo → get a custom Spanish quiz</div>
+    <h1><span class="flag">Spansk</span> <span class="flag2">Quizgenerator</span></h1>
+    <div class="sub">Lim inn tekst eller ta et bilde → få en skreddersydd spansk quiz</div>
   </div>
   <div class="actions">
-    <button class="ghost" id="changeKeyBtn" title="Change OpenAI API key">API key</button>
+    <span class="key-status" id="keyStatus"><span class="dot"></span><span id="keyStatusText">Ingen nøkkel</span></span>
+    <button class="ghost" id="changeKeyBtn" title="Endre OpenAI API-nøkkel">API-nøkkel</button>
   </div>
 </header>
 
 <main>
 
   <div class="card" id="setupCard">
-    <h2>1. Give it some material</h2>
-    <p class="hint">Paste Spanish (or English) text, a vocab list, or a photo of a textbook page, sign, menu, etc.</p>
+    <h2>1. Gi den litt materiale</h2>
+    <p class="hint">Lim inn spansk (eller norsk) tekst, en ordliste, eller et bilde av en lærebokside, et skilt, en meny osv.</p>
 
     <div class="tabs">
-      <button class="tab-btn active" data-tab="text">📝 Paste text</button>
-      <button class="tab-btn" data-tab="photo">📷 Photo</button>
+      <button class="tab-btn active" data-tab="text">📝 Lim inn tekst</button>
+      <button class="tab-btn" data-tab="photo">📷 Bilde</button>
     </div>
 
     <div class="tab-panel active" id="tab-text">
-      <textarea id="sourceText" placeholder="Paste or type text here — e.g. a paragraph, dialogue, or a list of vocabulary words..."></textarea>
+      <textarea id="sourceText" placeholder="Lim inn eller skriv tekst her – f.eks. et avsnitt, en dialog, eller en liste med ord..."></textarea>
     </div>
 
     <div class="tab-panel" id="tab-photo">
       <div class="dropzone" id="dropzone">
-        <div><strong>Click to choose a photo</strong> or drag one here</div>
-        <div style="font-size:.78rem;margin-top:4px;">On mobile this can open your camera directly</div>
+        <div><strong>Klikk for å velge et bilde</strong> eller dra og slipp et her</div>
+        <div style="font-size:.78rem;margin-top:4px;">På mobil kan dette åpne kameraet direkte</div>
       </div>
       <input type="file" id="fileInput" accept="image/*" capture="environment" class="hidden" />
       <div id="previewWrap" class="hidden preview-wrap">
-        <img id="previewImg" alt="Selected photo preview" />
-        <button class="ghost" id="removePhotoBtn">Remove</button>
+        <img id="previewImg" alt="Forhåndsvisning av valgt bilde" />
+        <button class="ghost" id="removePhotoBtn">Fjern</button>
       </div>
     </div>
 
-    <h2 style="margin-top:22px;">2. Quiz settings</h2>
+    <h2 style="margin-top:22px;">2. Quizinnstillinger</h2>
     <div class="settings-grid">
       <div class="field">
-        <label for="numQuestions">Number of questions</label>
+        <label for="numQuestions">Antall spørsmål</label>
         <select id="numQuestions">
           <option value="3">3</option>
           <option value="5" selected>5</option>
@@ -222,37 +231,37 @@
         </select>
       </div>
       <div class="field">
-        <label for="difficulty">Difficulty</label>
+        <label for="difficulty">Vanskelighetsgrad</label>
         <select id="difficulty">
-          <option value="auto" selected>Auto (based on material)</option>
-          <option value="beginner">Beginner (A1–A2)</option>
-          <option value="intermediate">Intermediate (B1–B2)</option>
-          <option value="advanced">Advanced (C1–C2)</option>
+          <option value="auto" selected>Auto (basert på materialet)</option>
+          <option value="beginner">Nybegynner (A1–A2)</option>
+          <option value="intermediate">Middels (B1–B2)</option>
+          <option value="advanced">Avansert (C1–C2)</option>
         </select>
       </div>
     </div>
 
     <div class="field">
-      <label>Question types</label>
+      <label>Spørsmålstyper</label>
       <div class="checks">
-        <label><input type="checkbox" class="qtype" value="multiple_choice" checked /> Multiple choice</label>
-        <label><input type="checkbox" class="qtype" value="true_false" checked /> True / False</label>
-        <label><input type="checkbox" class="qtype" value="fill_blank" checked /> Fill in the blank</label>
-        <label><input type="checkbox" class="qtype" value="translation" checked /> Translation</label>
+        <label><input type="checkbox" class="qtype" value="multiple_choice" checked /> Flervalg</label>
+        <label><input type="checkbox" class="qtype" value="true_false" checked /> Sant / usant</label>
+        <label><input type="checkbox" class="qtype" value="fill_blank" checked /> Fyll inn det som mangler</label>
+        <label><input type="checkbox" class="qtype" value="translation" checked /> Oversettelse</label>
       </div>
     </div>
 
     <div class="field">
-      <label for="focusHint">Optional focus (e.g. "subjunctive mood", "food vocabulary")</label>
-      <input type="text" id="focusHint" placeholder="Leave blank to let the quiz cover the material generally" />
+      <label for="focusHint">Valgfritt fokus (f.eks. «konjunktiv», «matvokabular»)</label>
+      <input type="text" id="focusHint" placeholder="La stå tom for at quizen skal dekke materialet generelt" />
     </div>
 
     <div class="field">
-      <label for="modelInput">OpenAI model</label>
+      <label for="modelInput">OpenAI-modell</label>
       <input type="text" id="modelInput" value="gpt-4o-mini" />
     </div>
 
-    <button id="generateBtn">Generate quiz</button>
+    <button id="generateBtn">Generer quiz</button>
     <div id="genError" class="error-box hidden"></div>
   </div>
 
@@ -260,7 +269,7 @@
 
 </main>
 
-<footer>Your OpenAI API key never leaves your browser except to talk to api.openai.com. No data is stored anywhere else.</footer>
+<footer>Din OpenAI API-nøkkel forlater aldri nettleseren din, bortsett fra for å snakke med api.openai.com. Ingen data lagres noe annet sted.</footer>
 
 <script>
 (function () {
@@ -288,20 +297,75 @@
   }
   function hideGate() { $("#gateOverlay").classList.add("hidden"); }
 
-  $("#gateSaveBtn").addEventListener("click", () => {
+  // ---------- API key status indicator ----------
+  function setKeyStatus(state) {
+    const el = $("#keyStatus");
+    el.className = "key-status " + state;
+    el.querySelector("#keyStatusText").textContent = {
+      unset: "Ingen nøkkel",
+      checking: "Sjekker nøkkel…",
+      ok: "Nøkkel synkronisert",
+      bad: "Nøkkel avvist",
+    }[state] || "";
+  }
+
+  async function verifyKey(key) {
+    try {
+      const res = await fetch("https://api.openai.com/v1/models", {
+        headers: { "Authorization": "Bearer " + key },
+      });
+      return res.ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  $("#gateSaveBtn").addEventListener("click", async () => {
     const val = $("#gateKeyInput").value.trim();
     if (!val.startsWith("sk-")) {
-      $("#gateErr").textContent = "That doesn't look like an OpenAI key (should start with \"sk-\").";
+      $("#gateErr").textContent = "Det ser ikke ut som en gyldig OpenAI-nøkkel (bør starte med «sk-»).";
       return;
     }
+    $("#gateErr").textContent = "";
+    $("#gateSaveBtn").disabled = true;
+    $("#gateSaveBtn").textContent = "Kobler til…";
+    setKeyStatus("checking");
+
+    const valid = await verifyKey(val);
+
+    $("#gateSaveBtn").disabled = false;
+    $("#gateSaveBtn").textContent = "Lagre";
+
+    if (!valid) {
+      $("#gateErr").textContent = "Den nøkkelen ble avvist av OpenAI. Sjekk at den er riktig og prøv igjen.";
+      setKeyStatus("bad");
+      return;
+    }
+
     apiKey = val;
     localStorage.setItem(LS_KEY, apiKey);
+    setKeyStatus("ok");
     hideGate();
   });
   $("#gateKeyInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#gateSaveBtn").click(); });
   $("#changeKeyBtn").addEventListener("click", () => showGate());
 
-  if (!apiKey) showGate();
+  if (!apiKey) {
+    setKeyStatus("unset");
+    showGate();
+  } else {
+    setKeyStatus("checking");
+    verifyKey(apiKey).then((valid) => {
+      if (valid) {
+        setKeyStatus("ok");
+      } else {
+        localStorage.removeItem(LS_KEY);
+        apiKey = "";
+        setKeyStatus("bad");
+        showGate("Den lagrede nøkkelen ble avvist av OpenAI. Skriv inn en gyldig nøkkel.");
+      }
+    });
+  }
 
   const savedModel = localStorage.getItem(LS_MODEL);
   if (savedModel) $("#modelInput").value = savedModel;
@@ -339,10 +403,13 @@
 
   function handleFile(file) {
     if (!file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
+    // Load the original photo via an object URL, NOT a base64 data URL — a full-resolution
+    // camera photo (12MP+) encoded as base64 first can exhaust memory on phones. We only
+    // produce a data URL later, from the already-downscaled canvas.
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      try {
         let { width, height } = img;
         if (width > MAX_IMAGE_DIM || height > MAX_IMAGE_DIM) {
           const scale = MAX_IMAGE_DIM / Math.max(width, height);
@@ -357,10 +424,17 @@
         $("#previewImg").src = photoDataUrl;
         $("#previewWrap").classList.remove("hidden");
         dropzone.classList.add("hidden");
-      };
-      img.src = reader.result;
+      } catch (e) {
+        showError("Klarte ikke å behandle bildet (for stort for nettleseren). Prøv et bilde med lavere oppløsning.");
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
     };
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      showError("Klarte ikke å laste bildet. Prøv et annet bilde.");
+    };
+    img.src = objectUrl;
   }
 
   // ---------- Generate quiz ----------
@@ -372,25 +446,27 @@
 
   function buildPrompt(n, difficulty, types, focus) {
     const typeList = types.join(", ");
-    let diffText = "Choose a level that fits the material naturally.";
-    if (difficulty === "beginner") diffText = "Target CEFR level A1–A2 (beginner).";
-    if (difficulty === "intermediate") diffText = "Target CEFR level B1–B2 (intermediate).";
-    if (difficulty === "advanced") diffText = "Target CEFR level C1–C2 (advanced).";
+    let diffText = "Velg et nivå som passer naturlig til materialet.";
+    if (difficulty === "beginner") diffText = "Sikt mot CEFR-nivå A1–A2 (nybegynner).";
+    if (difficulty === "intermediate") diffText = "Sikt mot CEFR-nivå B1–B2 (middels).";
+    if (difficulty === "advanced") diffText = "Sikt mot CEFR-nivå C1–C2 (avansert).";
 
     return [
-      "You are an expert Spanish-language teacher who creates quizzes for language learners.",
+      "You are an expert Spanish-language teacher who creates quizzes for native Norwegian speakers learning Spanish.",
       "You will be given source material (pasted text, or a photo containing Spanish text / a vocabulary list / a textbook page / a sign / a menu).",
       "Generate an ORIGINAL quiz that tests understanding of that specific material — do not invent unrelated content.",
+      "Write every question prompt, every answer option (other than the Spanish word/phrase actually being tested), and every explanation in Norwegian (bokmål). The learner reads Norwegian, not English.",
+      "For \"translation\" questions specifically: ask the learner to translate a word or short phrase between Norwegian and Spanish, and vary the direction (some norsk→spansk, some spansk→norsk) — never English.",
       "Respond with ONLY a single JSON object (no markdown, no code fences, no commentary) matching exactly this shape:",
       `{
-  "title": "short quiz title (string)",
+  "title": "kort tittel på quizen, på norsk (string)",
   "questions": [
     {
       "type": "one of: multiple_choice | true_false | fill_blank | translation",
-      "prompt": "the question text (string)",
-      "options": ["array of strings — exactly 4 plausible answers in Spanish for multiple_choice, exactly [\\"Verdadero\\",\\"Falso\\"] for true_false, empty array [] for fill_blank and translation"],
-      "correct_answer": "must exactly match one string in options for multiple_choice/true_false, otherwise the expected short answer",
-      "explanation": "brief explanation in English of why the answer is correct, referencing the source material"
+      "prompt": "selve spørsmålsteksten, på norsk (string)",
+      "options": ["array of strings — exactly 4 plausible answers in Spanish for multiple_choice, exactly [\\"Sant\\",\\"Usant\\"] for true_false, empty array [] for fill_blank and translation"],
+      "correct_answer": "must exactly match one string in options for multiple_choice/true_false, otherwise the expected short answer (in Spanish or Norwegian depending on the direction asked)",
+      "explanation": "kort forklaring på norsk om hvorfor svaret er riktig, med referanse til kildematerialet"
     }
   ]
 }`,
@@ -414,11 +490,11 @@
 
     const tab = activeInputTab();
     const text = $("#sourceText").value.trim();
-    if (tab === "text" && !text) { showError("Please paste some text first."); return; }
-    if (tab === "photo" && !photoDataUrl) { showError("Please choose a photo first."); return; }
+    if (tab === "text" && !text) { showError("Lim inn litt tekst først."); return; }
+    if (tab === "photo" && !photoDataUrl) { showError("Velg et bilde først."); return; }
 
     const types = $$(".qtype:checked").map((c) => c.value);
-    if (types.length === 0) { showError("Select at least one question type."); return; }
+    if (types.length === 0) { showError("Velg minst én spørsmålstype."); return; }
 
     const n = $("#numQuestions").value;
     const difficulty = $("#difficulty").value;
@@ -459,29 +535,30 @@
         if (res.status === 401) {
           localStorage.removeItem(LS_KEY);
           apiKey = "";
-          showGate("That key was rejected by OpenAI. Please enter a valid key.");
+          setKeyStatus("bad");
+          showGate("Den nøkkelen ble avvist av OpenAI. Skriv inn en gyldig nøkkel.");
           throw new Error("Unauthorized");
         }
-        throw new Error((errData && errData.error && errData.error.message) || `Request failed (HTTP ${res.status})`);
+        throw new Error((errData && errData.error && errData.error.message) || `Forespørselen feilet (HTTP ${res.status})`);
       }
 
       const data = await res.json();
       const raw = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-      if (!raw) throw new Error("Empty response from model.");
+      if (!raw) throw new Error("Tomt svar fra modellen.");
 
       let parsed;
       try {
         parsed = JSON.parse(raw);
       } catch (e) {
-        throw new Error("Model did not return valid JSON. Try again, or try a different model.");
+        throw new Error("Modellen returnerte ikke gyldig JSON. Prøv igjen, eller prøv en annen modell.");
       }
 
       const questions = Array.isArray(parsed.questions)
         ? parsed.questions.filter((q) => q && q.type && q.prompt && q.correct_answer !== undefined)
         : [];
-      if (questions.length === 0) throw new Error("The model didn't return any usable questions. Try again.");
+      if (questions.length === 0) throw new Error("Modellen returnerte ingen brukbare spørsmål. Prøv igjen.");
 
-      currentQuiz = { title: parsed.title || "Spanish Quiz", questions };
+      currentQuiz = { title: parsed.title || "Spansk quiz", questions };
       userAnswers = {};
       graded = false;
       renderQuiz();
@@ -501,7 +578,7 @@
   function setLoading(loading) {
     const btn = $("#generateBtn");
     btn.disabled = loading;
-    btn.innerHTML = loading ? '<span class="spinner"></span>Generating…' : "Generate quiz";
+    btn.innerHTML = loading ? '<span class="spinner"></span>Genererer…' : "Generer quiz";
   }
 
   // ---------- Normalization for lenient grading ----------
@@ -523,7 +600,7 @@
     const header = document.createElement("div");
     header.className = "quiz-header";
     header.innerHTML = `<div><h2 style="margin:0;">${escapeHtml(currentQuiz.title)}</h2>
-      <p class="hint" style="margin:4px 0 0;">${currentQuiz.questions.length} questions</p></div>`;
+      <p class="hint" style="margin:4px 0 0;">${currentQuiz.questions.length} spørsmål</p></div>`;
     card.appendChild(header);
 
     currentQuiz.questions.forEach((q, i) => card.appendChild(renderQuestion(q, i)));
@@ -532,11 +609,11 @@
     actions.className = "row";
     actions.style.marginTop = "10px";
     const checkBtn = document.createElement("button");
-    checkBtn.textContent = "Check answers";
+    checkBtn.textContent = "Sjekk svar";
     checkBtn.id = "checkBtn";
     checkBtn.addEventListener("click", checkAnswers);
     const newBtn = document.createElement("button");
-    newBtn.textContent = "New quiz";
+    newBtn.textContent = "Ny quiz";
     newBtn.className = "secondary";
     newBtn.addEventListener("click", resetToSetup);
     actions.appendChild(checkBtn);
@@ -553,7 +630,7 @@
 
     const num = document.createElement("div");
     num.className = "q-num";
-    num.textContent = `Question ${i + 1} · ${typeLabel(q.type)}`;
+    num.textContent = `Spørsmål ${i + 1} · ${typeLabel(q.type)}`;
     wrap.appendChild(num);
 
     const prompt = document.createElement("div");
@@ -562,7 +639,7 @@
     wrap.appendChild(prompt);
 
     if (q.type === "multiple_choice" || q.type === "true_false") {
-      const options = Array.isArray(q.options) && q.options.length ? q.options : ["Verdadero", "Falso"];
+      const options = Array.isArray(q.options) && q.options.length ? q.options : ["Sant", "Usant"];
       options.forEach((opt, oi) => {
         const optWrap = document.createElement("label");
         optWrap.className = "opt";
@@ -574,7 +651,7 @@
     } else {
       const input = document.createElement("input");
       input.type = "text";
-      input.placeholder = q.type === "translation" ? "Type your translation…" : "Type the missing word/phrase…";
+      input.placeholder = q.type === "translation" ? "Skriv oversettelsen din…" : "Skriv det manglende ordet/uttrykket…";
       input.addEventListener("input", () => { userAnswers[i] = input.value; });
       wrap.appendChild(input);
     }
@@ -587,7 +664,7 @@
   }
 
   function typeLabel(t) {
-    return { multiple_choice: "Multiple choice", true_false: "True / False", fill_blank: "Fill in the blank", translation: "Translation" }[t] || t;
+    return { multiple_choice: "Flervalg", true_false: "Sant / usant", fill_blank: "Fyll inn det som mangler", translation: "Oversettelse" }[t] || t;
   }
 
   function checkAnswers() {
@@ -618,15 +695,15 @@
 
       const explain = qCard.querySelector(".explain");
       explain.classList.remove("hidden");
-      explain.innerHTML = `<span class="verdict ${isCorrect ? "good" : "bad"}">${isCorrect ? "✓ Correct" : "✗ Incorrect"}</span>` +
-        (q.type === "fill_blank" || q.type === "translation" ? `Correct answer: <strong>${escapeHtml(q.correct_answer)}</strong><br>` : "") +
+      explain.innerHTML = `<span class="verdict ${isCorrect ? "good" : "bad"}">${isCorrect ? "✓ Riktig" : "✗ Feil"}</span>` +
+        (q.type === "fill_blank" || q.type === "translation" ? `Riktig svar: <strong>${escapeHtml(q.correct_answer)}</strong><br>` : "") +
         escapeHtml(q.explanation || "");
     });
 
     $("#checkBtn").remove();
     const banner = document.createElement("div");
     banner.className = "score-banner";
-    banner.innerHTML = `<div class="big">${score} <span class="accent">/</span> ${currentQuiz.questions.length}</div><div class="hint">correct</div>`;
+    banner.innerHTML = `<div class="big">${score} <span class="accent">/</span> ${currentQuiz.questions.length}</div><div class="hint">riktige</div>`;
     $("#quizCard").insertBefore(banner, $("#quizCard").querySelector(".row"));
   }
 
