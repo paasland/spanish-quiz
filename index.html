@@ -223,7 +223,8 @@
         <button type="button" class="secondary" id="pickGalleryBtn">🖼️ Velg fra galleriet</button>
       </div>
       <p class="hint" style="margin:10px 0 0;">Du kan legge til flere bilder, f.eks. hvis teksten strekker seg over flere sider. Bilder valgt fra galleriet har gjerne mindre/vanskeligere lesbar skrift enn et nytatt bilde — ta bilde direkte for best resultat.</p>
-      <input type="file" id="cameraInput" accept="image/*" capture="environment" class="hidden" />
+      <p class="hint" style="margin:6px 0 0;">Får du en feilmelding om lite minne når du tar bilde direkte? Det er en kjent iPhone/Safari-begrensning ved høyoppløselige bilder. Ta bildet i vanlige Kamera-appen først, og velg det deretter via «Velg fra galleriet».</p>
+      <input type="file" id="cameraInput" accept="image/*" class="hidden" />
       <input type="file" id="galleryInput" accept="image/*" multiple class="hidden" />
       <div id="photoGrid" class="photo-grid hidden"></div>
     </div>
