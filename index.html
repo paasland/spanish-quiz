@@ -107,15 +107,14 @@
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
 
-  .dropzone {
-    border: 2px dashed var(--border); border-radius: 12px; padding: 28px;
-    text-align: center; color: var(--muted); cursor: pointer; transition: border-color .15s ease, background .15s ease;
-  }
-  .dropzone.drag { border-color: var(--accent-2); background: rgba(244,163,0,.06); }
-  .dropzone strong { color: var(--text); }
-  .preview-wrap { position: relative; display: inline-block; margin-top: 14px; }
-  .preview-wrap img { max-width: 100%; max-height: 320px; border-radius: 10px; border: 1px solid var(--border); display: block; }
-  .preview-wrap button { position: absolute; top: 8px; right: 8px; padding: 4px 10px; font-size: .78rem; background: rgba(0,0,0,.7); }
+  .photo-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+  .photo-buttons button { flex: 1; min-width: 180px; }
+  #tab-photo.drag { outline: 2px dashed var(--accent-2); outline-offset: 6px; border-radius: 12px; }
+  .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 16px; }
+  .photo-thumb { position: relative; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel-2); }
+  .photo-thumb img { width: 100%; height: 140px; object-fit: cover; display: block; }
+  .photo-thumb .num { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,.7); color: #fff; font-size: .7rem; font-weight: 700; padding: 2px 7px; border-radius: 5px; }
+  .photo-thumb button { position: absolute; bottom: 6px; right: 6px; padding: 3px 9px; font-size: .74rem; background: rgba(0,0,0,.75); border: 1px solid rgba(255,255,255,.2); color: #fff; }
 
   .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin: 18px 0; }
   .checks { display: flex; flex-wrap: wrap; gap: 14px; }
@@ -207,15 +206,14 @@
     </div>
 
     <div class="tab-panel" id="tab-photo">
-      <div class="dropzone" id="dropzone">
-        <div><strong>Klikk for å velge et bilde</strong> eller dra og slipp et her</div>
-        <div style="font-size:.78rem;margin-top:4px;">På mobil kan dette åpne kameraet direkte</div>
+      <div class="photo-buttons">
+        <button type="button" id="takePhotoBtn">📷 Ta bilde</button>
+        <button type="button" class="secondary" id="pickGalleryBtn">🖼️ Velg fra galleriet</button>
       </div>
-      <input type="file" id="fileInput" accept="image/*" capture="environment" class="hidden" />
-      <div id="previewWrap" class="hidden preview-wrap">
-        <img id="previewImg" alt="Forhåndsvisning av valgt bilde" />
-        <button class="ghost" id="removePhotoBtn">Fjern</button>
-      </div>
+      <p class="hint" style="margin:10px 0 0;">Du kan legge til flere bilder, f.eks. hvis teksten strekker seg over flere sider. Bilder valgt fra galleriet har gjerne mindre/vanskeligere lesbar skrift enn et nytatt bilde — ta bilde direkte for best resultat.</p>
+      <input type="file" id="cameraInput" accept="image/*" capture="environment" class="hidden" />
+      <input type="file" id="galleryInput" accept="image/*" multiple class="hidden" />
+      <div id="photoGrid" class="photo-grid hidden"></div>
     </div>
 
     <h2 style="margin-top:22px;">2. Quizinnstillinger</h2>
@@ -257,8 +255,15 @@
     </div>
 
     <div class="field">
-      <label for="modelInput">OpenAI-modell</label>
-      <input type="text" id="modelInput" value="gpt-4o-mini" />
+      <label for="modelSelect">OpenAI-modell</label>
+      <select id="modelSelect">
+        <option value="gpt-4o-mini" selected>gpt-4o-mini (rimelig, anbefalt)</option>
+        <option value="gpt-4o">gpt-4o (kraftigere)</option>
+        <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+        <option value="gpt-4.1">gpt-4.1</option>
+        <option value="custom">Egendefinert modell…</option>
+      </select>
+      <input type="text" id="modelCustomInput" class="hidden" placeholder="Skriv inn eksakt modell-ID" style="margin-top:8px;" />
     </div>
 
     <button id="generateBtn">Generer quiz</button>
@@ -280,7 +285,7 @@
   const MAX_IMAGE_DIM = 1600;
 
   let apiKey = localStorage.getItem(LS_KEY) || "";
-  let photoDataUrl = null;
+  let photos = [];
   let currentQuiz = null;
   let userAnswers = {};
   let graded = false;
@@ -367,9 +372,33 @@
     });
   }
 
+  // ---------- Model selection ----------
+  const MODEL_PRESETS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"];
   const savedModel = localStorage.getItem(LS_MODEL);
-  if (savedModel) $("#modelInput").value = savedModel;
-  $("#modelInput").addEventListener("change", () => localStorage.setItem(LS_MODEL, $("#modelInput").value.trim()));
+  if (savedModel) {
+    if (MODEL_PRESETS.includes(savedModel)) {
+      $("#modelSelect").value = savedModel;
+    } else {
+      $("#modelSelect").value = "custom";
+      $("#modelCustomInput").value = savedModel;
+      $("#modelCustomInput").classList.remove("hidden");
+    }
+  }
+  $("#modelSelect").addEventListener("change", () => {
+    const isCustom = $("#modelSelect").value === "custom";
+    $("#modelCustomInput").classList.toggle("hidden", !isCustom);
+    if (!isCustom) localStorage.setItem(LS_MODEL, $("#modelSelect").value);
+    else if ($("#modelCustomInput").value.trim()) localStorage.setItem(LS_MODEL, $("#modelCustomInput").value.trim());
+  });
+  $("#modelCustomInput").addEventListener("change", () => {
+    localStorage.setItem(LS_MODEL, $("#modelCustomInput").value.trim());
+  });
+
+  function getSelectedModel() {
+    const sel = $("#modelSelect").value;
+    if (sel === "custom") return $("#modelCustomInput").value.trim() || "gpt-4o-mini";
+    return sel;
+  }
 
   // ---------- Tabs ----------
   $$(".tab-btn").forEach((btn) => {
@@ -382,59 +411,83 @@
   });
 
   // ---------- Photo input ----------
-  const dropzone = $("#dropzone");
-  const fileInput = $("#fileInput");
-  dropzone.addEventListener("click", () => fileInput.click());
-  dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("drag"); });
-  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag"));
-  dropzone.addEventListener("drop", (e) => {
+  const photoPanel = $("#tab-photo");
+  const cameraInput = $("#cameraInput");
+  const galleryInput = $("#galleryInput");
+
+  $("#takePhotoBtn").addEventListener("click", () => cameraInput.click());
+  $("#pickGalleryBtn").addEventListener("click", () => galleryInput.click());
+  cameraInput.addEventListener("change", () => { handleFiles(cameraInput.files); cameraInput.value = ""; });
+  galleryInput.addEventListener("change", () => { handleFiles(galleryInput.files); galleryInput.value = ""; });
+
+  photoPanel.addEventListener("dragover", (e) => { e.preventDefault(); photoPanel.classList.add("drag"); });
+  photoPanel.addEventListener("dragleave", () => photoPanel.classList.remove("drag"));
+  photoPanel.addEventListener("drop", (e) => {
     e.preventDefault();
-    dropzone.classList.remove("drag");
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
-  });
-  fileInput.addEventListener("change", () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
-  $("#removePhotoBtn").addEventListener("click", (e) => {
-    e.stopPropagation();
-    photoDataUrl = null;
-    fileInput.value = "";
-    $("#previewWrap").classList.add("hidden");
-    dropzone.classList.remove("hidden");
+    photoPanel.classList.remove("drag");
+    if (e.dataTransfer.files) handleFiles(e.dataTransfer.files);
   });
 
-  function handleFile(file) {
-    if (!file.type.startsWith("image/")) return;
-    // Load the original photo via an object URL, NOT a base64 data URL — a full-resolution
-    // camera photo (12MP+) encoded as base64 first can exhaust memory on phones. We only
-    // produce a data URL later, from the already-downscaled canvas.
-    const objectUrl = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      try {
-        let { width, height } = img;
-        if (width > MAX_IMAGE_DIM || height > MAX_IMAGE_DIM) {
-          const scale = MAX_IMAGE_DIM / Math.max(width, height);
-          width = Math.round(width * scale);
-          height = Math.round(height * scale);
+  // Resize a single file via an object URL, NOT a base64 data URL — a full-resolution
+  // camera photo (12MP+) encoded as base64 first can exhaust memory on phones. We only
+  // produce a data URL from the already-downscaled canvas.
+  function resizeImageFile(file) {
+    return new Promise((resolve, reject) => {
+      if (!file.type || !file.type.startsWith("image/")) { reject(new Error("not an image")); return; }
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let { width, height } = img;
+          if (width > MAX_IMAGE_DIM || height > MAX_IMAGE_DIM) {
+            const scale = MAX_IMAGE_DIM / Math.max(width, height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", 0.85));
+        } catch (e) {
+          reject(e);
+        } finally {
+          URL.revokeObjectURL(objectUrl);
         }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-        photoDataUrl = canvas.toDataURL("image/jpeg", 0.85);
-        $("#previewImg").src = photoDataUrl;
-        $("#previewWrap").classList.remove("hidden");
-        dropzone.classList.add("hidden");
+      };
+      img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("failed to load image")); };
+      img.src = objectUrl;
+    });
+  }
+
+  // Process files one at a time (not Promise.all) to keep peak memory low on phones.
+  async function handleFiles(fileList) {
+    const files = Array.from(fileList || []);
+    for (const file of files) {
+      try {
+        const dataUrl = await resizeImageFile(file);
+        photos.push(dataUrl);
+        renderPhotoGrid();
       } catch (e) {
-        showError("Klarte ikke å behandle bildet (for stort for nettleseren). Prøv et bilde med lavere oppløsning.");
-      } finally {
-        URL.revokeObjectURL(objectUrl);
+        showError("Klarte ikke å behandle et av bildene (for stort eller ugyldig format). Prøv et annet bilde.");
       }
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      showError("Klarte ikke å laste bildet. Prøv et annet bilde.");
-    };
-    img.src = objectUrl;
+    }
+  }
+
+  function renderPhotoGrid() {
+    const grid = $("#photoGrid");
+    grid.innerHTML = "";
+    grid.classList.toggle("hidden", photos.length === 0);
+    photos.forEach((url, i) => {
+      const thumb = document.createElement("div");
+      thumb.className = "photo-thumb";
+      thumb.innerHTML = `<span class="num">${i + 1}</span><img src="${url}" alt="Bilde ${i + 1}" /><button type="button" class="ghost">Fjern</button>`;
+      thumb.querySelector("button").addEventListener("click", () => {
+        photos.splice(i, 1);
+        renderPhotoGrid();
+      });
+      grid.appendChild(thumb);
+    });
   }
 
   // ---------- Generate quiz ----------
@@ -491,7 +544,7 @@
     const tab = activeInputTab();
     const text = $("#sourceText").value.trim();
     if (tab === "text" && !text) { showError("Lim inn litt tekst først."); return; }
-    if (tab === "photo" && !photoDataUrl) { showError("Velg et bilde først."); return; }
+    if (tab === "photo" && photos.length === 0) { showError("Legg til minst ett bilde først."); return; }
 
     const types = $$(".qtype:checked").map((c) => c.value);
     if (types.length === 0) { showError("Velg minst én spørsmålstype."); return; }
@@ -499,7 +552,7 @@
     const n = $("#numQuestions").value;
     const difficulty = $("#difficulty").value;
     const focus = $("#focusHint").value.trim();
-    const model = $("#modelInput").value.trim() || "gpt-4o-mini";
+    const model = getSelectedModel();
 
     const promptText = buildPrompt(n, difficulty, types, focus);
 
@@ -507,8 +560,8 @@
     if (tab === "text") {
       userContent.push({ type: "text", text: "Source material:\n\n" + text });
     } else {
-      userContent.push({ type: "text", text: "Source material: see attached photo." });
-      userContent.push({ type: "image_url", image_url: { url: photoDataUrl } });
+      userContent.push({ type: "text", text: "Source material: see the attached photo(s)." });
+      photos.forEach((url) => userContent.push({ type: "image_url", image_url: { url } }));
     }
 
     setLoading(true);
