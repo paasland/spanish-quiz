@@ -139,11 +139,16 @@
   .opt.correct { border-color: var(--good); background: rgba(63,185,80,.1); }
   .opt.incorrect { border-color: var(--bad); background: rgba(248,81,73,.1); }
   .q-card.graded.correct-q { border-color: var(--good); }
+  .q-card.graded.close-q { border-color: var(--accent-2); }
   .q-card.graded.incorrect-q { border-color: var(--bad); }
   .explain { margin-top: 10px; font-size: .84rem; color: var(--muted); border-top: 1px dashed var(--border); padding-top: 10px; }
   .explain .verdict { font-weight: 700; margin-right: 6px; }
   .verdict.good { color: var(--good); }
+  .verdict.close { color: var(--accent-2); }
   .verdict.bad { color: var(--bad); }
+  input[type="text"].answer-correct { border-color: var(--good); background: rgba(63,185,80,.08); }
+  input[type="text"].answer-close { border-color: var(--accent-2); background: rgba(244,163,0,.08); }
+  input[type="text"].answer-incorrect { border-color: var(--bad); background: rgba(248,81,73,.08); }
 
   .score-banner { text-align: center; padding: 18px; }
   .score-banner .big { font-size: 2.4rem; font-weight: 800; }
@@ -509,14 +514,17 @@
       "You will be given source material (pasted text, or a photo containing Spanish text / a vocabulary list / a textbook page / a sign / a menu).",
       "Generate an ORIGINAL quiz that tests understanding of that specific material — do not invent unrelated content.",
       "Write every question prompt, every answer option (other than the Spanish word/phrase actually being tested), and every explanation in Norwegian (bokmål). The learner reads Norwegian, not English.",
-      "For \"translation\" questions specifically: ask the learner to translate a word or short phrase between Norwegian and Spanish, and vary the direction (some norsk→spansk, some spansk→norsk) — never English.",
+      "CRITICAL — every question must make the expected answer LANGUAGE unambiguous from the prompt text alone, with no mixing of Norwegian and Spanish within the same sentence:",
+      "- For \"fill_blank\": the sentence containing the blank must be written ENTIRELY IN SPANISH (this tests Spanish grammar/vocabulary in context). Never write the sentence in Norwegian with only a Spanish infinitive hint in parentheses — that leaves the learner unsure which language to answer in. If you want to give a hint, put a Norwegian translation of the whole sentence in parentheses AFTER the Spanish sentence, e.g. \"Yo ____ (leer) un libro. (Jeg leser en bok.)\", so it's clear the blank itself is a Spanish word.",
+      "- For \"translation\": the prompt must start with exactly \"Oversett til spansk:\" or \"Oversett til norsk:\" followed by the word/phrase to translate in quotes, so the learner always knows which language to type the answer in. Vary the direction across questions.",
+      "- For \"multiple_choice\" and \"fill_blank\", correct_answer and options are always in Spanish. For \"translation\", correct_answer is in whichever language the prompt asked the learner to translate INTO.",
       "Respond with ONLY a single JSON object (no markdown, no code fences, no commentary) matching exactly this shape:",
       `{
   "title": "kort tittel på quizen, på norsk (string)",
   "questions": [
     {
       "type": "one of: multiple_choice | true_false | fill_blank | translation",
-      "prompt": "selve spørsmålsteksten, på norsk (string)",
+      "prompt": "selve spørsmålsteksten (string) — in Norwegian, except the sentence itself is in Spanish for fill_blank per the rules below",
       "options": ["array of strings — exactly 4 plausible answers in Spanish for multiple_choice, exactly [\\"Sant\\",\\"Usant\\"] for true_false, empty array [] for fill_blank and translation"],
       "correct_answer": "must exactly match one string in options for multiple_choice/true_false, otherwise the expected short answer (in Spanish or Norwegian depending on the direction asked)",
       "explanation": "kort forklaring på norsk om hvorfor svaret er riktig, med referanse til kildematerialet"
@@ -634,7 +642,7 @@
     btn.innerHTML = loading ? '<span class="spinner"></span>Genererer…' : "Generer quiz";
   }
 
-  // ---------- Normalization for lenient grading ----------
+  // ---------- Normalization + gradual grading for free-text answers ----------
   function normalize(s) {
     return String(s || "")
       .toLowerCase()
@@ -642,6 +650,37 @@
       .replace(/[¿?¡!.,;:"'()]/g, "")
       .trim()
       .replace(/\s+/g, " ");
+  }
+
+  function levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    if (m === 0) return n;
+    if (n === 0) return m;
+    const dp = new Array(n + 1);
+    for (let j = 0; j <= n; j++) dp[j] = j;
+    for (let i = 1; i <= m; i++) {
+      let prev = dp[0];
+      dp[0] = i;
+      for (let j = 1; j <= n; j++) {
+        const temp = dp[j];
+        dp[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+        prev = temp;
+      }
+    }
+    return dp[n];
+  }
+
+  // Returns "correct" | "close" | "incorrect" instead of a hard boolean, so a small
+  // typo or a missing/wrong verb ending doesn't get the same red "feil" treatment
+  // as a completely different answer.
+  function classifyTextAnswer(userAnswer, correctAnswer) {
+    const u = normalize(userAnswer);
+    const c = normalize(correctAnswer);
+    if (!u) return "incorrect";
+    if (u === c) return "correct";
+    const dist = levenshtein(u, c);
+    const threshold = Math.max(1, Math.round(c.length * 0.25));
+    return dist <= threshold ? "close" : "incorrect";
   }
 
   // ---------- Render quiz ----------
@@ -704,7 +743,7 @@
     } else {
       const input = document.createElement("input");
       input.type = "text";
-      input.placeholder = q.type === "translation" ? "Skriv oversettelsen din…" : "Skriv det manglende ordet/uttrykket…";
+      input.placeholder = q.type === "translation" ? "Skriv oversettelsen din…" : "Skriv det manglende ordet på spansk…";
       input.addEventListener("input", () => { userAnswers[i] = input.value; });
       wrap.appendChild(input);
     }
@@ -728,27 +767,32 @@
     currentQuiz.questions.forEach((q, i) => {
       const qCard = document.querySelector(`.q-card[data-index="${i}"]`);
       const userAnswer = userAnswers[i] || "";
-      let isCorrect;
+      let verdict;
 
       if (q.type === "multiple_choice" || q.type === "true_false") {
-        isCorrect = userAnswer === q.correct_answer;
+        verdict = userAnswer === q.correct_answer ? "correct" : "incorrect";
         qCard.querySelectorAll(".opt").forEach((optEl) => {
           optEl.querySelector("input").disabled = true;
           if (optEl.dataset.opt === q.correct_answer) optEl.classList.add("correct");
           else if (optEl.dataset.opt === userAnswer) optEl.classList.add("incorrect");
         });
       } else {
-        isCorrect = normalize(userAnswer) === normalize(q.correct_answer);
+        verdict = classifyTextAnswer(userAnswer, q.correct_answer);
         const input = qCard.querySelector("input[type=text]");
-        if (input) input.disabled = true;
+        if (input) {
+          input.disabled = true;
+          input.classList.add({ correct: "answer-correct", close: "answer-close", incorrect: "answer-incorrect" }[verdict]);
+        }
       }
 
-      if (isCorrect) score++;
-      qCard.classList.add("graded", isCorrect ? "correct-q" : "incorrect-q");
+      if (verdict === "correct") score++;
+      qCard.classList.add("graded", verdict + "-q");
 
+      const verdictLabel = { correct: "✓ Riktig", close: "～ Nesten riktig", incorrect: "✗ Feil" }[verdict];
+      const verdictClass = { correct: "good", close: "close", incorrect: "bad" }[verdict];
       const explain = qCard.querySelector(".explain");
       explain.classList.remove("hidden");
-      explain.innerHTML = `<span class="verdict ${isCorrect ? "good" : "bad"}">${isCorrect ? "✓ Riktig" : "✗ Feil"}</span>` +
+      explain.innerHTML = `<span class="verdict ${verdictClass}">${verdictLabel}</span>` +
         (q.type === "fill_blank" || q.type === "translation" ? `Riktig svar: <strong>${escapeHtml(q.correct_answer)}</strong><br>` : "") +
         escapeHtml(q.explanation || "");
     });
