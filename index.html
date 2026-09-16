@@ -587,7 +587,10 @@
     return [
       "You are an expert Spanish-language teacher who creates quizzes for native Norwegian speakers learning Spanish.",
       "You will be given source material as plain text (it may originally be a transcript of a photo — a vocabulary list, a textbook page, a sign, a menu — so it may contain minor transcription noise).",
-      "Generate an ORIGINAL quiz that tests understanding of that specific material — do not invent unrelated content.",
+      "Generate an ORIGINAL quiz that tests the learner's SPANISH, using the source material's words/sentences/topic as the CONTENT to quiz on — do not invent unrelated content.",
+      "CRITICAL — THIS IS A SPANISH QUIZ, NOT A READING-COMPREHENSION QUIZ. Every single question, of every type, must be impossible to answer correctly without knowing Spanish vocabulary or grammar.",
+      "The source material is very often entirely in ONE language only (e.g. only Norwegian, like \"Olivia spiser\", or only Spanish) — this is normal and expected, NOT a sign that the material lacks Spanish content to quiz on. Never take the easy way out and ask a plain comprehension question in whatever language the source happens to be in (e.g. asking \"Hvem spiser?\" about a Norwegian sentence tests Norwegian reading, not Spanish, and is NOT acceptable, even as a fill_blank or multiple_choice question).",
+      "Instead, for every piece of source content, work out the correct Spanish yourself from your own knowledge (translating Norwegian source content to Spanish, or vice versa) and build the question around that Spanish — e.g. from source text \"Olivia spiser\", a valid question asks the learner to translate it (\"Oversett til spansk: «Olivia spiser»\", correct_answer \"Olivia come\"), or turns it into a Spanish fill_blank/multiple_choice about the verb \"comer\" — never a Norwegian-only question about who is eating.",
       "Write every question prompt, every answer option (other than the Spanish word/phrase actually being tested), and every explanation in Norwegian (bokmål). The learner reads Norwegian, not English.",
       "CRITICAL — every question must make the expected answer LANGUAGE unambiguous from the prompt text alone, with no mixing of Norwegian and Spanish within the same sentence:",
       "- For \"fill_blank\": the sentence containing the blank must be written ENTIRELY IN SPANISH (this tests Spanish grammar/vocabulary in context). Never write the sentence in Norwegian with only a Spanish infinitive hint in parentheses — that leaves the learner unsure which language to answer in. If you want to give a hint, put a Norwegian translation of the whole sentence in parentheses AFTER the Spanish sentence, e.g. \"Yo ____ (leer) un libro. (Jeg leser en bok.)\", so it's clear the blank itself is a Spanish word.",
@@ -612,7 +615,7 @@
       `- ${diffText}`,
       focus ? `- Pay special attention to: ${focus}.` : "",
       `- For fill_blank, include the blank in the sentence as "____".`,
-      `- Base every question strictly on the given source material.`,
+      `- Every question's CONTENT (topic, vocabulary, specific words/sentences) must come from the given source material, but you must supply the correct Spanish yourself (via translation) whenever the source material doesn't already provide it — never skip testing Spanish just because the source text is single-language.`,
       `- Output valid JSON only.`,
     ].filter(Boolean).join("\n");
   }
@@ -715,6 +718,7 @@
         "- For multiple_choice/true_false: every option is a real, correctly spelled/formed word or phrase, and correct_answer exactly matches one of the options.",
         "- explanation is factually accurate and does not contradict the correct_answer.",
         "- prompt is unambiguous about which language the answer should be in (see the rules it was generated under).",
+        "- MOST IMPORTANT: the question must be impossible to answer correctly without knowing Spanish. If you find a question that can be answered purely from Norwegian reading comprehension, with no Spanish knowledge required (e.g. a question like \"Hvem spiser?\" about a Norwegian sentence, or any fill_blank/multiple_choice whose blank/options are Norwegian instead of Spanish), that is a serious bug — rewrite that question from scratch as a proper Spanish question testing the same underlying content (e.g. turn it into a translation question to/from Spanish, or a Spanish fill_blank), translating the content yourself.",
         "If you find ANY mistake, fix it directly in place rather than just noting it. If a question's premise is fundamentally broken, rewrite it so it's still testing similar content correctly. If everything is already correct, return the quiz unchanged.",
         "Respond with ONLY the corrected JSON object, in exactly the same shape as given (same fields, same number of questions), with no markdown or commentary.",
         "",
