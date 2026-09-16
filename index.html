@@ -153,6 +153,11 @@
   .score-banner { text-align: center; padding: 18px; }
   .score-banner .big { font-size: 2.4rem; font-weight: 800; }
   .score-banner .big .accent { color: var(--accent-2); }
+  .score-banner .percent { color: var(--muted); }
+  .score-banner .celeb { margin-top: 12px; font-size: .95rem; color: var(--text); max-width: 480px; margin-left: auto; margin-right: auto; }
+  .score-banner .celeb strong { color: var(--accent-2); }
+
+  #confettiCanvas { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
 
   /* API key gate */
   .gate-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.8); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
@@ -170,6 +175,8 @@
 </style>
 </head>
 <body>
+
+<canvas id="confettiCanvas"></canvas>
 
 <div id="gateOverlay" class="gate-overlay hidden">
   <div class="gate">
@@ -798,10 +805,85 @@
     });
 
     $("#checkBtn").remove();
+    const percent = Math.round((score / currentQuiz.questions.length) * 100);
+    const celeb = celebrityForPercent(percent);
     const banner = document.createElement("div");
     banner.className = "score-banner";
-    banner.innerHTML = `<div class="big">${score} <span class="accent">/</span> ${currentQuiz.questions.length}</div><div class="hint">riktige</div>`;
+    banner.innerHTML = `<div class="big">${score} <span class="accent">/</span> ${currentQuiz.questions.length}</div>` +
+      `<div class="hint percent">${percent}% riktige</div>` +
+      `<div class="celeb">Du er omtrent like spansktalende som <strong>${escapeHtml(celeb.name)}</strong> — ${escapeHtml(celeb.blurb)}.</div>`;
     $("#quizCard").insertBefore(banner, $("#quizCard").querySelector(".row"));
+
+    if (percent > 50) launchConfetti(percent);
+  }
+
+  // ---------- Confetti (score > 50%) ----------
+  function launchConfetti(percent) {
+    const canvas = $("#confettiCanvas");
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    const ctx = canvas.getContext("2d");
+
+    // t = 0 at 50%, 1 at 100% — both particle count and size scale with it.
+    const t = Math.min(1, Math.max(0, (percent - 50) / 50));
+    const count = Math.round(50 + t * 200);
+    const sizeMin = 6 + t * 4;
+    const sizeMax = 10 + t * 8;
+    // Spanish flag (red/gold) + Norwegian flag (red/white/blue) colors.
+    const colors = ["#d62839", "#f4a300", "#ffffff", "#002868", "#ba0c2f"];
+
+    const particles = [];
+    for (let i = 0; i < count; i++) {
+      particles.push({
+        x: Math.random() * canvas.width,
+        y: -20 - Math.random() * canvas.height * 0.4,
+        vx: (Math.random() - 0.5) * 2.5,
+        vy: 2 + Math.random() * 2 + t * 2,
+        size: sizeMin + Math.random() * (sizeMax - sizeMin),
+        color: colors[Math.floor(Math.random() * colors.length)],
+        rot: Math.random() * 360,
+        vrot: (Math.random() - 0.5) * 12,
+      });
+    }
+
+    let frame = 0;
+    const maxFrames = 280;
+    function tick() {
+      frame++;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let anyOnScreen = false;
+      particles.forEach((p) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.035;
+        p.rot += p.vrot;
+        if (p.y < canvas.height + 20) anyOnScreen = true;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate((p.rot * Math.PI) / 180);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+        ctx.restore();
+      });
+      if (anyOnScreen && frame < maxFrames) {
+        requestAnimationFrame(tick);
+      } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // ---------- "Which Spanish-speaking celebrity are you" tier list ----------
+  // Just for fun — not a factual claim about anyone's actual Spanish skills.
+  function celebrityForPercent(percent) {
+    if (percent >= 90) return { name: "Penélope Cruz", blurb: "du snakker flytende som en Oscar-vinnende spansk skuespiller" };
+    if (percent >= 75) return { name: "Shakira", blurb: "hoftene lyver ikke, og det gjør ikke spansken din heller" };
+    if (percent >= 60) return { name: "Antonio Banderas", blurb: "du kunne saktens spilt Zorro på spansk" };
+    if (percent >= 45) return { name: "Rafael Nadal", blurb: "solid som en forehand på grus — du takler spansken bra" };
+    if (percent >= 30) return { name: "en norsk pensjonist på Solkysten", blurb: "du bestiller øl og finner stranden helt fint" };
+    if (percent >= 15) return { name: "en norsk charterturist i Alicante", blurb: "«una cerveza, por favor» er stort sett hele repertoaret ditt" };
+    return { name: "Kaptein Sabeltann", blurb: "du skjønner nok mer sjørøverspråk enn spansk foreløpig" };
   }
 
   function resetToSetup() {
