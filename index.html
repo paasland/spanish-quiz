@@ -227,6 +227,8 @@
       <input type="file" id="cameraInput" accept="image/*" class="hidden" />
       <input type="file" id="galleryInput" accept="image/*" multiple class="hidden" />
       <div id="photoGrid" class="photo-grid hidden"></div>
+      <button type="button" id="transcribeBtn" class="secondary hidden" style="margin-top:14px;">🔎 Les av tekst fra bilder</button>
+      <p class="hint" style="margin:8px 0 0;">Teksten AI-en leser av bildet havner i «Lim inn tekst»-fanen, slik at du kan sjekke og rette eventuelle feiltolkninger før quizen lages.</p>
     </div>
 
     <h2 style="margin-top:22px;">2. Quizinnstillinger</h2>
@@ -491,6 +493,7 @@
     const grid = $("#photoGrid");
     grid.innerHTML = "";
     grid.classList.toggle("hidden", photos.length === 0);
+    $("#transcribeBtn").classList.toggle("hidden", photos.length === 0);
     photos.forEach((url, i) => {
       const thumb = document.createElement("div");
       thumb.className = "photo-thumb";
@@ -503,12 +506,76 @@
     });
   }
 
+  // ---------- Transcribe photos to editable text (lets the user catch/fix OCR misreads) ----------
+  $("#transcribeBtn").addEventListener("click", transcribePhotos);
+
+  async function transcribePhotos() {
+    if (!apiKey) { showGate(); return; }
+    if (photos.length === 0) return;
+
+    const errBox = $("#genError");
+    errBox.classList.add("hidden");
+    errBox.textContent = "";
+
+    const btn = $("#transcribeBtn");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Leser bildet…';
+
+    try {
+      const userContent = [
+        {
+          type: "text",
+          text: [
+            "Transcribe ALL text visible in the attached photo(s), exactly as written — Spanish, Norwegian, or a mix, whatever is actually there.",
+            "Do NOT translate, summarize, or explain anything. Just transcribe verbatim, preserving accents, punctuation and line breaks as closely as possible.",
+            "If a word or phrase is genuinely illegible or ambiguous, write your best guess followed by \"[uklart]\" in brackets rather than skipping it.",
+            "If there are multiple photos, transcribe them in order, separated by a blank line.",
+            "Respond with ONLY the transcribed text — no commentary, no markdown formatting, no quotes around it.",
+          ].join("\n"),
+        },
+      ];
+      photos.forEach((url) => userContent.push({ type: "image_url", image_url: { url } }));
+
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + apiKey,
+        },
+        body: JSON.stringify({
+          model: getSelectedModel(),
+          messages: [{ role: "user", content: userContent }],
+          temperature: 0,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error((errData && errData.error && errData.error.message) || `Forespørselen feilet (HTTP ${res.status})`);
+      }
+
+      const data = await res.json();
+      const transcript = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || "").trim();
+      if (!transcript) throw new Error("Fikk ingen tekst tilbake fra bildet.");
+
+      const existing = $("#sourceText").value.trim();
+      $("#sourceText").value = existing ? existing + "\n\n" + transcript : transcript;
+
+      $$(".tab-btn").forEach((b) => b.classList.remove("active"));
+      $$(".tab-panel").forEach((p) => p.classList.remove("active"));
+      $('.tab-btn[data-tab="text"]').classList.add("active");
+      $("#tab-text").classList.add("active");
+      $("#sourceText").focus();
+    } catch (err) {
+      showError("Klarte ikke å lese av bildet: " + (err.message || String(err)));
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = "🔎 Les av tekst fra bilder";
+    }
+  }
+
   // ---------- Generate quiz ----------
   $("#generateBtn").addEventListener("click", generateQuiz);
-
-  function activeInputTab() {
-    return $(".tab-btn.active").dataset.tab;
-  }
 
   function buildPrompt(n, difficulty, types, focus) {
     const typeList = types.join(", ");
@@ -519,7 +586,7 @@
 
     return [
       "You are an expert Spanish-language teacher who creates quizzes for native Norwegian speakers learning Spanish.",
-      "You will be given source material (pasted text, or a photo containing Spanish text / a vocabulary list / a textbook page / a sign / a menu).",
+      "You will be given source material as plain text (it may originally be a transcript of a photo — a vocabulary list, a textbook page, a sign, a menu — so it may contain minor transcription noise).",
       "Generate an ORIGINAL quiz that tests understanding of that specific material — do not invent unrelated content.",
       "Write every question prompt, every answer option (other than the Spanish word/phrase actually being tested), and every explanation in Norwegian (bokmål). The learner reads Norwegian, not English.",
       "CRITICAL — every question must make the expected answer LANGUAGE unambiguous from the prompt text alone, with no mixing of Norwegian and Spanish within the same sentence:",
@@ -557,10 +624,8 @@
 
     if (!apiKey) { showGate(); return; }
 
-    const tab = activeInputTab();
     const text = $("#sourceText").value.trim();
-    if (tab === "text" && !text) { showError("Lim inn litt tekst først."); return; }
-    if (tab === "photo" && photos.length === 0) { showError("Legg til minst ett bilde først."); return; }
+    if (!text) { showError("Lim inn tekst, eller les av tekst fra et bilde først."); return; }
 
     const types = $$(".qtype:checked").map((c) => c.value);
     if (types.length === 0) { showError("Velg minst én spørsmålstype."); return; }
@@ -570,64 +635,24 @@
     const focus = $("#focusHint").value.trim();
     const model = getSelectedModel();
 
-    const promptText = buildPrompt(n, difficulty, types, focus);
+    const promptText = buildPrompt(n, difficulty, types, focus) + "\n\nSource material:\n\n" + text;
 
-    const userContent = [{ type: "text", text: promptText }];
-    if (tab === "text") {
-      userContent.push({ type: "text", text: "Source material:\n\n" + text });
-    } else {
-      userContent.push({ type: "text", text: "Source material: see the attached photo(s)." });
-      photos.forEach((url) => userContent.push({ type: "image_url", image_url: { url } }));
-    }
-
-    setLoading(true);
+    setLoading(true, "Genererer quiz…");
     try {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + apiKey,
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: "You always respond with a single valid JSON object and nothing else." },
-            { role: "user", content: userContent },
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.7,
-        }),
-      });
+      let quiz = await callChatJson(model, [
+        { role: "system", content: "You always respond with a single valid JSON object and nothing else." },
+        { role: "user", content: promptText },
+      ]);
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => null);
-        if (res.status === 401) {
-          localStorage.removeItem(LS_KEY);
-          apiKey = "";
-          setKeyStatus("bad");
-          showGate("Den nøkkelen ble avvist av OpenAI. Skriv inn en gyldig nøkkel.");
-          throw new Error("Unauthorized");
-        }
-        throw new Error((errData && errData.error && errData.error.message) || `Forespørselen feilet (HTTP ${res.status})`);
-      }
-
-      const data = await res.json();
-      const raw = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-      if (!raw) throw new Error("Tomt svar fra modellen.");
-
-      let parsed;
-      try {
-        parsed = JSON.parse(raw);
-      } catch (e) {
-        throw new Error("Modellen returnerte ikke gyldig JSON. Prøv igjen, eller prøv en annen modell.");
-      }
-
-      const questions = Array.isArray(parsed.questions)
-        ? parsed.questions.filter((q) => q && q.type && q.prompt && q.correct_answer !== undefined)
+      const questions = Array.isArray(quiz.questions)
+        ? quiz.questions.filter((q) => q && q.type && q.prompt && q.correct_answer !== undefined)
         : [];
       if (questions.length === 0) throw new Error("Modellen returnerte ingen brukbare spørsmål. Prøv igjen.");
+      quiz = { title: quiz.title || "Spansk quiz", questions };
 
-      currentQuiz = { title: parsed.title || "Spansk quiz", questions };
+      setLoading(true, "Kvalitetssjekker spansken…");
+      currentQuiz = await verifyQuiz(quiz, model);
+
       userAnswers = {};
       graded = false;
       renderQuiz();
@@ -638,16 +663,90 @@
     }
   }
 
+  // Shared helper for a chat-completions call that must return a JSON object.
+  async function callChatJson(model, messages, temperature) {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + apiKey,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        response_format: { type: "json_object" },
+        temperature: temperature === undefined ? 0.7 : temperature,
+      }),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      if (res.status === 401) {
+        localStorage.removeItem(LS_KEY);
+        apiKey = "";
+        setKeyStatus("bad");
+        showGate("Den nøkkelen ble avvist av OpenAI. Skriv inn en gyldig nøkkel.");
+        throw new Error("Unauthorized");
+      }
+      throw new Error((errData && errData.error && errData.error.message) || `Forespørselen feilet (HTTP ${res.status})`);
+    }
+
+    const data = await res.json();
+    const raw = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    if (!raw) throw new Error("Tomt svar fra modellen.");
+
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      throw new Error("Modellen returnerte ikke gyldig JSON. Prøv igjen, eller prøv en annen modell.");
+    }
+  }
+
+  // Second pass: ask the model to fact-check its own quiz against what it knows about
+  // real Spanish grammar/vocabulary and fix any mistakes, since a single generation pass
+  // (especially one also reading a photo) can produce wrong conjugations/translations.
+  // Best-effort — falls back to the unverified quiz on any failure rather than blocking.
+  async function verifyQuiz(quiz, model) {
+    try {
+      const verifyPrompt = [
+        "You are a meticulous, native-level Spanish teacher fact-checking a quiz (as JSON) before it is shown to a Norwegian learner.",
+        "For every question, carefully verify against your real knowledge of Spanish (and Norwegian, for translations into Norwegian):",
+        "- correct_answer is genuinely correct: real word, correctly spelled, correctly conjugated/agreed (gender, number, verb tense/person), with correct accents.",
+        "- For multiple_choice/true_false: every option is a real, correctly spelled/formed word or phrase, and correct_answer exactly matches one of the options.",
+        "- explanation is factually accurate and does not contradict the correct_answer.",
+        "- prompt is unambiguous about which language the answer should be in (see the rules it was generated under).",
+        "If you find ANY mistake, fix it directly in place rather than just noting it. If a question's premise is fundamentally broken, rewrite it so it's still testing similar content correctly. If everything is already correct, return the quiz unchanged.",
+        "Respond with ONLY the corrected JSON object, in exactly the same shape as given (same fields, same number of questions), with no markdown or commentary.",
+        "",
+        "Quiz JSON to verify:",
+        JSON.stringify(quiz),
+      ].join("\n");
+
+      const verified = await callChatJson(model, [
+        { role: "system", content: "You always respond with a single valid JSON object and nothing else." },
+        { role: "user", content: verifyPrompt },
+      ], 0.2);
+
+      const questions = Array.isArray(verified.questions)
+        ? verified.questions.filter((q) => q && q.type && q.prompt && q.correct_answer !== undefined)
+        : null;
+      if (!questions || questions.length === 0) return quiz;
+      return { title: verified.title || quiz.title, questions };
+    } catch (e) {
+      return quiz;
+    }
+  }
+
   function showError(msg) {
     const errBox = $("#genError");
     errBox.textContent = msg;
     errBox.classList.remove("hidden");
   }
 
-  function setLoading(loading) {
+  function setLoading(loading, message) {
     const btn = $("#generateBtn");
     btn.disabled = loading;
-    btn.innerHTML = loading ? '<span class="spinner"></span>Genererer…' : "Generer quiz";
+    btn.innerHTML = loading ? `<span class="spinner"></span>${message || "Genererer…"}` : "Generer quiz";
   }
 
   // ---------- Normalization + gradual grading for free-text answers ----------
