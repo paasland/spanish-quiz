@@ -109,6 +109,7 @@
 
   .photo-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
   .photo-buttons button { flex: 1; min-width: 180px; }
+  #transcribeStatus .spinner { border-color: rgba(139,148,158,.35); border-top-color: var(--accent-2); }
   #tab-photo.drag { outline: 2px dashed var(--accent-2); outline-offset: 6px; border-radius: 12px; }
   .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 16px; }
   .photo-thumb { position: relative; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel-2); }
@@ -194,7 +195,7 @@
 <header>
   <div>
     <h1><span class="flag">Spansk</span> <span class="flag2">Quizgenerator</span></h1>
-    <div class="sub">Lim inn tekst eller ta et bilde → få en skreddersydd spansk quiz</div>
+    <div class="sub">Lim inn tekst eller last opp et bilde → få en skreddersydd spansk quiz</div>
   </div>
   <div class="actions">
     <span class="key-status" id="keyStatus"><span class="dot"></span><span id="keyStatusText">Ingen nøkkel</span></span>
@@ -219,16 +220,13 @@
 
     <div class="tab-panel" id="tab-photo">
       <div class="photo-buttons">
-        <button type="button" id="takePhotoBtn">📷 Ta bilde</button>
-        <button type="button" class="secondary" id="pickGalleryBtn">🖼️ Velg fra galleriet</button>
+        <button type="button" class="secondary" id="pickGalleryBtn">🖼️ Last opp bilde</button>
       </div>
-      <p class="hint" style="margin:10px 0 0;">Du kan legge til flere bilder, f.eks. hvis teksten strekker seg over flere sider. Bilder valgt fra galleriet har gjerne mindre/vanskeligere lesbar skrift enn et nytatt bilde — ta bilde direkte for best resultat.</p>
-      <p class="hint" style="margin:6px 0 0;">Får du en feilmelding om lite minne når du tar bilde direkte? Det er en kjent iPhone/Safari-begrensning ved høyoppløselige bilder. Ta bildet i vanlige Kamera-appen først, og velg det deretter via «Velg fra galleriet».</p>
-      <input type="file" id="cameraInput" accept="image/*" class="hidden" />
+      <p class="hint" style="margin:10px 0 0;">Velg et eksisterende bilde fra enheten din. Du kan legge til flere bilder, f.eks. hvis teksten strekker seg over flere sider.</p>
       <input type="file" id="galleryInput" accept="image/*" multiple class="hidden" />
       <div id="photoGrid" class="photo-grid hidden"></div>
-      <button type="button" id="transcribeBtn" class="secondary hidden" style="margin-top:14px;">🔎 Les av tekst fra bilder</button>
-      <p class="hint" style="margin:8px 0 0;">Teksten AI-en leser av bildet havner i «Lim inn tekst»-fanen, slik at du kan sjekke og rette eventuelle feiltolkninger før quizen lages.</p>
+      <div id="transcribeStatus" class="hint hidden" style="margin:14px 0 0;"></div>
+      <p class="hint" style="margin:8px 0 0;">Teksten leses automatisk av bildet og havner i «Lim inn tekst»-fanen, slik at du kan sjekke og rette eventuelle feiltolkninger før quizen lages.</p>
     </div>
 
     <h2 style="margin-top:22px;">2. Quizinnstillinger</h2>
@@ -366,6 +364,7 @@
     localStorage.setItem(LS_KEY, apiKey);
     setKeyStatus("ok");
     hideGate();
+    transcribePending();
   });
   $("#gateKeyInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#gateSaveBtn").click(); });
   $("#changeKeyBtn").addEventListener("click", () => showGate());
@@ -427,12 +426,9 @@
 
   // ---------- Photo input ----------
   const photoPanel = $("#tab-photo");
-  const cameraInput = $("#cameraInput");
   const galleryInput = $("#galleryInput");
 
-  $("#takePhotoBtn").addEventListener("click", () => cameraInput.click());
   $("#pickGalleryBtn").addEventListener("click", () => galleryInput.click());
-  cameraInput.addEventListener("change", () => { handleFiles(cameraInput.files); cameraInput.value = ""; });
   galleryInput.addEventListener("change", () => { handleFiles(galleryInput.files); galleryInput.value = ""; });
 
   photoPanel.addEventListener("dragover", (e) => { e.preventDefault(); photoPanel.classList.add("drag"); });
@@ -481,20 +477,20 @@
     for (const file of files) {
       try {
         const dataUrl = await resizeImageFile(file);
-        photos.push(dataUrl);
+        photos.push({ url: dataUrl, transcribed: false });
         renderPhotoGrid();
       } catch (e) {
         showError("Klarte ikke å behandle et av bildene (for stort eller ugyldig format). Prøv et annet bilde.");
       }
     }
+    transcribePending();
   }
 
   function renderPhotoGrid() {
     const grid = $("#photoGrid");
     grid.innerHTML = "";
     grid.classList.toggle("hidden", photos.length === 0);
-    $("#transcribeBtn").classList.toggle("hidden", photos.length === 0);
-    photos.forEach((url, i) => {
+    photos.forEach(({ url }, i) => {
       const thumb = document.createElement("div");
       thumb.className = "photo-thumb";
       thumb.innerHTML = `<span class="num">${i + 1}</span><img src="${url}" alt="Bilde ${i + 1}" /><button type="button" class="ghost">Fjern</button>`;
@@ -507,19 +503,24 @@
   }
 
   // ---------- Transcribe photos to editable text (lets the user catch/fix OCR misreads) ----------
-  $("#transcribeBtn").addEventListener("click", transcribePhotos);
+  // Runs automatically after photos are added. Only photos not yet transcribed are sent,
+  // so adding another photo later doesn't duplicate the earlier text.
+  let transcribing = false;
 
-  async function transcribePhotos() {
+  async function transcribePending() {
+    if (transcribing) return;
+    const batch = photos.filter((p) => !p.transcribed);
+    if (batch.length === 0) return;
     if (!apiKey) { showGate(); return; }
-    if (photos.length === 0) return;
 
     const errBox = $("#genError");
     errBox.classList.add("hidden");
     errBox.textContent = "";
 
-    const btn = $("#transcribeBtn");
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>Leser bildet…';
+    transcribing = true;
+    const status = $("#transcribeStatus");
+    status.innerHTML = '<span class="spinner"></span>Leser av tekst fra bildet…';
+    status.classList.remove("hidden");
 
     try {
       const userContent = [
@@ -534,7 +535,7 @@
           ].join("\n"),
         },
       ];
-      photos.forEach((url) => userContent.push({ type: "image_url", image_url: { url } }));
+      batch.forEach((p) => userContent.push({ type: "image_url", image_url: { url: p.url } }));
 
       const res = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
@@ -558,6 +559,7 @@
       const transcript = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || "").trim();
       if (!transcript) throw new Error("Fikk ingen tekst tilbake fra bildet.");
 
+      batch.forEach((p) => { p.transcribed = true; });
       const existing = $("#sourceText").value.trim();
       $("#sourceText").value = existing ? existing + "\n\n" + transcript : transcript;
 
@@ -569,9 +571,11 @@
     } catch (err) {
       showError("Klarte ikke å lese av bildet: " + (err.message || String(err)));
     } finally {
-      btn.disabled = false;
-      btn.innerHTML = "🔎 Les av tekst fra bilder";
+      transcribing = false;
+      status.classList.add("hidden");
     }
+    // Photos added while this request was running.
+    if (photos.some((p) => !p.transcribed) && !$("#genError").textContent) transcribePending();
   }
 
   // ---------- Generate quiz ----------
@@ -590,12 +594,14 @@
       "Generate an ORIGINAL quiz that tests the learner's SPANISH, using the source material's words/sentences/topic as the CONTENT to quiz on — do not invent unrelated content.",
       "CRITICAL — THIS IS A SPANISH QUIZ, NOT A READING-COMPREHENSION QUIZ. Every single question, of every type, must be impossible to answer correctly without knowing Spanish vocabulary or grammar.",
       "The source material is very often entirely in ONE language only (e.g. only Norwegian, like \"Olivia spiser\", or only Spanish) — this is normal and expected, NOT a sign that the material lacks Spanish content to quiz on. Never take the easy way out and ask a plain comprehension question in whatever language the source happens to be in (e.g. asking \"Hvem spiser?\" about a Norwegian sentence tests Norwegian reading, not Spanish, and is NOT acceptable, even as a fill_blank or multiple_choice question).",
-      "Instead, for every piece of source content, work out the correct Spanish yourself from your own knowledge (translating Norwegian source content to Spanish, or vice versa) and build the question around that Spanish — e.g. from source text \"Olivia spiser\", a valid question asks the learner to translate it (\"Oversett til spansk: «Olivia spiser»\", correct_answer \"Olivia come\"), or turns it into a Spanish fill_blank/multiple_choice about the verb \"comer\" — never a Norwegian-only question about who is eating.",
-      "Write every question prompt, every answer option (other than the Spanish word/phrase actually being tested), and every explanation in Norwegian (bokmål). The learner reads Norwegian, not English.",
+      "Instead, for every piece of source content, work out the correct Spanish yourself from your own knowledge (translating Norwegian source content to Spanish, or vice versa) and build the question around that Spanish, using ONLY the question types you are allowed to use (listed in the Rules below) — never a Norwegian-only question about who is eating.",
+      "Write every question prompt and every explanation in Norwegian (bokmål), except for the Spanish words/sentences being tested. The learner reads Norwegian, not English. Never write a question prompt in Spanish or English.",
+      "CRITICAL — NORWEGIAN MUST BE CORRECT, NATURAL BOKMÅL. Do not translate word-for-word from Spanish or English. Examples: age is \"Daniel er tolv år (gammel)\", NEVER \"Daniel har tolv år\"; say \"Daniel tilbringer tid med vennene sine\" (or \"vennene hans\"), with correct reflexive possessives (sin/si/sitt/sine only when referring back to the subject), correct definite/indefinite forms and correct word order. Re-read every Norwegian sentence you write and fix errors before answering.",
       "CRITICAL — every question must make the expected answer LANGUAGE unambiguous from the prompt text alone, with no mixing of Norwegian and Spanish within the same sentence:",
       "- For \"fill_blank\": the sentence containing the blank must be written ENTIRELY IN SPANISH (this tests Spanish grammar/vocabulary in context). Never write the sentence in Norwegian with only a Spanish infinitive hint in parentheses — that leaves the learner unsure which language to answer in. If you want to give a hint, put a Norwegian translation of the whole sentence in parentheses AFTER the Spanish sentence, e.g. \"Yo ____ (leer) un libro. (Jeg leser en bok.)\", so it's clear the blank itself is a Spanish word.",
       "- For \"translation\": the prompt must start with exactly \"Oversett til spansk:\" or \"Oversett til norsk:\" followed by the word/phrase to translate in quotes, so the learner always knows which language to type the answer in. Vary the direction across questions.",
-      "- For \"multiple_choice\" and \"fill_blank\", correct_answer and options are always in Spanish. For \"translation\", correct_answer is in whichever language the prompt asked the learner to translate INTO.",
+      "- For \"multiple_choice\" about vocabulary, the question must be sensible: EITHER give a Norwegian word and ask for the Spanish one (\"Hva heter «bror» på spansk?\", options all in Spanish), OR give a Spanish word and ask for its Norwegian meaning (\"Hva betyr «hermano»?\", options all in Norwegian). NEVER ask what a Spanish word means \"in Spanish\" / \"på spansk\" with Spanish options, and never use English options. multiple_choice may also test Spanish grammar (e.g. choose the correct verb form, options in Spanish).",
+      "- For \"fill_blank\", correct_answer is Spanish. For \"translation\", correct_answer is in whichever language the prompt asked the learner to translate INTO.",
       "Respond with ONLY a single JSON object (no markdown, no code fences, no commentary) matching exactly this shape:",
       `{
   "title": "kort tittel på quizen, på norsk (string)",
@@ -612,6 +618,7 @@
       `Rules:`,
       `- Generate exactly ${n} questions.`,
       `- Only use these question types: ${typeList}. Mix them if more than one is listed.`,
+      `- Every question's "type" field MUST be one of: ${typeList}. Do NOT use any other type, even if the instructions above describe it — those descriptions only apply to the types you are allowed to use. Questions of a type not in this list will be discarded.`,
       `- ${diffText}`,
       focus ? `- Pay special attention to: ${focus}.` : "",
       `- For fill_blank, include the blank in the sentence as "____".`,
@@ -642,19 +649,24 @@
 
     setLoading(true, "Genererer quiz…");
     try {
-      let quiz = await callChatJson(model, [
-        { role: "system", content: "You always respond with a single valid JSON object and nothing else." },
-        { role: "user", content: promptText },
-      ]);
-
-      const questions = Array.isArray(quiz.questions)
-        ? quiz.questions.filter((q) => q && q.type && q.prompt && q.correct_answer !== undefined)
-        : [];
-      if (questions.length === 0) throw new Error("Modellen returnerte ingen brukbare spørsmål. Prøv igjen.");
-      quiz = { title: quiz.title || "Spansk quiz", questions };
+      let quiz = null;
+      // The model sometimes ignores the type selection; retry once if too few questions survive filtering.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const raw = await callChatJson(model, [
+          { role: "system", content: "You always respond with a single valid JSON object and nothing else." },
+          { role: "user", content: promptText },
+        ]);
+        const questions = filterQuestions(raw.questions, types);
+        if (!quiz || questions.length > quiz.questions.length) {
+          quiz = { title: raw.title || "Spansk quiz", questions };
+        }
+        if (questions.length >= Number(n)) break;
+      }
+      if (quiz.questions.length === 0) throw new Error("Modellen returnerte ingen brukbare spørsmål. Prøv igjen.");
+      quiz.questions = quiz.questions.slice(0, Number(n));
 
       setLoading(true, "Kvalitetssjekker spansken…");
-      currentQuiz = await verifyQuiz(quiz, model);
+      currentQuiz = await verifyQuiz(quiz, model, types);
 
       userAnswers = {};
       graded = false;
@@ -664,6 +676,13 @@
     } finally {
       setLoading(false);
     }
+  }
+
+  // Keep only well-formed questions of an allowed type (the model doesn't always obey the selection).
+  function filterQuestions(list, types) {
+    return Array.isArray(list)
+      ? list.filter((q) => q && types.includes(q.type) && q.prompt && q.correct_answer !== undefined)
+      : [];
   }
 
   // Shared helper for a chat-completions call that must return a JSON object.
@@ -709,16 +728,19 @@
   // real Spanish grammar/vocabulary and fix any mistakes, since a single generation pass
   // (especially one also reading a photo) can produce wrong conjugations/translations.
   // Best-effort — falls back to the unverified quiz on any failure rather than blocking.
-  async function verifyQuiz(quiz, model) {
+  async function verifyQuiz(quiz, model, types) {
     try {
       const verifyPrompt = [
         "You are a meticulous, native-level Spanish teacher fact-checking a quiz (as JSON) before it is shown to a Norwegian learner.",
         "For every question, carefully verify against your real knowledge of Spanish (and Norwegian, for translations into Norwegian):",
         "- correct_answer is genuinely correct: real word, correctly spelled, correctly conjugated/agreed (gender, number, verb tense/person), with correct accents.",
         "- For multiple_choice/true_false: every option is a real, correctly spelled/formed word or phrase, and correct_answer exactly matches one of the options.",
+        "- The Norwegian text (prompts, explanations, Norwegian answers/options) is correct, natural bokmål — fix calques from Spanish/English (e.g. age is \"er tolv år\", never \"har tolv år\"), wrong reflexive possessives (sin/si/sitt/sine), wrong word order or inflection.",
+        "- Multiple_choice vocabulary questions make sense: either a Norwegian word with Spanish options (\"Hva heter «bror» på spansk?\"), or a Spanish word with Norwegian options (\"Hva betyr «hermano»?\"). A question asking what a Spanish word means \"in Spanish\", or with English options, is a bug — rewrite it. Question prompts must be in Norwegian, never Spanish or English.",
+        `- Allowed question types are ONLY: ${types.join(", ")}. Every question's type must be one of these; if you rewrite a question, keep a type from this list (never introduce another type).`,
         "- explanation is factually accurate and does not contradict the correct_answer.",
         "- prompt is unambiguous about which language the answer should be in (see the rules it was generated under).",
-        "- MOST IMPORTANT: the question must be impossible to answer correctly without knowing Spanish. If you find a question that can be answered purely from Norwegian reading comprehension, with no Spanish knowledge required (e.g. a question like \"Hvem spiser?\" about a Norwegian sentence, or any fill_blank/multiple_choice whose blank/options are Norwegian instead of Spanish), that is a serious bug — rewrite that question from scratch as a proper Spanish question testing the same underlying content (e.g. turn it into a translation question to/from Spanish, or a Spanish fill_blank), translating the content yourself.",
+        "- MOST IMPORTANT: the question must be impossible to answer correctly without knowing Spanish. If you find a question that can be answered purely from Norwegian reading comprehension, with no Spanish knowledge required (e.g. a question like \"Hvem spiser?\" about a Norwegian sentence, or any fill_blank/multiple_choice whose blank/options are Norwegian instead of Spanish), that is a serious bug — rewrite that question from scratch as a proper Spanish question testing the same underlying content (using an allowed type), translating the content yourself.",
         "If you find ANY mistake, fix it directly in place rather than just noting it. If a question's premise is fundamentally broken, rewrite it so it's still testing similar content correctly. If everything is already correct, return the quiz unchanged.",
         "Respond with ONLY the corrected JSON object, in exactly the same shape as given (same fields, same number of questions), with no markdown or commentary.",
         "",
@@ -731,10 +753,8 @@
         { role: "user", content: verifyPrompt },
       ], 0.2);
 
-      const questions = Array.isArray(verified.questions)
-        ? verified.questions.filter((q) => q && q.type && q.prompt && q.correct_answer !== undefined)
-        : null;
-      if (!questions || questions.length === 0) return quiz;
+      const questions = filterQuestions(verified.questions, types);
+      if (questions.length < quiz.questions.length) return quiz;
       return { title: verified.title || quiz.title, questions };
     } catch (e) {
       return quiz;
